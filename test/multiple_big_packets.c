@@ -54,6 +54,7 @@ void my_extension_recv_callback(struct ToxExtExtension *extension,
 		break;
 	default:
 		assert(false);
+		return;
 	}
 
 	memcpy(output, data_v, size);

@@ -749,6 +749,7 @@ static void toxext_append_negotiate_response(uint16_t remote_id,
 		packet, TOXEXT_PACKET_NEGOTIATE_RESPONSE, data,
 		TOXEXT_NEGOTIATE_RESPONSE_PACKET_SIZE);
 	assert(err == 0);
+	(void)err;
 }
 
 /**
@@ -982,6 +983,7 @@ int toxext_negotiate_connection(struct ToxExtExtension *extension,
 
 	/* If we are not constructing a valid packet we've done soemthing very wrong */
 	assert(err == 0);
+	(void)err;
 
 	err = toxext_append_packetbuf_data(&packet_buf, TOXEXT_PACKET_NEGOTIATE,
 					   data, sizeof(data));
@@ -1027,6 +1029,8 @@ int toxext_revoke_connection(struct ToxExtExtension *extension,
 	struct ToxExtPacketBuf packet_buf;
 	int err = toxext_init_packet_header(&packet_buf);
 	assert(err == 0);
+	(void)err;
+
 	uint8_t data[2];
 	toxext_write_uint16(data, connection->connection_id << 3);
 	err = toxext_append_packetbuf_data(&packet_buf, TOXEXT_PACKET_REVOKE,
