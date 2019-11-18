@@ -16,7 +16,6 @@ set_target_properties(
 
 get_target_property(pubhead Mock PUBLIC_HEADER)
 
-target_include_directories(Mock PRIVATE "${TOXCORE_INCLUDEDIR}")
-target_include_directories(Mock PUBLIC "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>")
+target_include_directories(Mock PUBLIC "$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>;${TOXCORE_INCLUDEDIR}")
 
 toxext_install(Mock)
