@@ -79,7 +79,7 @@ struct ToxExt {
 
 	/**
 	 * Sometimes toxcore will not be able to send our entire packet list at one time.
-	 * In this case we need to defer sending packets until toxcore has servcied more
+	 * In this case we need to defer sending packets until toxcore has serviced more
 	 * packets. This list is serviced in toxext_iterate calls
 	 */
 	struct ToxExtPacketList **deferred_packets;
@@ -97,10 +97,13 @@ struct ToxExtExtension {
 	toxext_recv_callback recv_cb;
 	/* Callback for when we finish negotiation with a friend */
 	toxext_negotiate_connection_cb negotiate_extension_cb;
-	/* Userdata to send back when we receive a packet */
+	/* Userdata to pass back when we receive a packet */
 	void *userdata;
 };
 
+// I think this needs some consistency on terminology between "toxext packet", "packet", "toxext packet list"
+// if a "toxext packet lists" contains multiple "toxext" packets, even if a whole list can fit within one "tox packet"
+// then isn't this a "toxext packet", not a "segment of a toxext packet"?
 /**
  * A segment of a toxext packet. Each one of these is mapped to an individual
  * toxcore packet. Many of these can make up a single ToxExtPacketList
@@ -115,6 +118,7 @@ struct ToxExtPacketBuf {
  * ToxExtPacketBuf. Internally we will refer to each segment added with
  * toxext_packet_append as a packet segment
  */
+// "We may have folded multiple packets into a single ToxExtPacketBuf" woh woh woh ok. Maybe I need to re-visit my last comment
 struct ToxExtPacketList {
 	struct ToxExt *toxext;
 	struct ToxExtPacketBuf *packets;
@@ -127,7 +131,7 @@ enum ToxExtPacketType {
 	TOXEXT_PACKET_NEGOTIATE,
 	TOXEXT_PACKET_NEGOTIATE_RESPONSE,
 	TOXEXT_PACKET_REVOKE,
-	/* Extensions will start iding themselves at TOXEXT_PACKET_CUSTOM_START */
+	/* Extensions will start identifying themselves at TOXEXT_PACKET_CUSTOM_START */
 	TOXEXT_PACKET_CUSTOM_START
 };
 
@@ -143,7 +147,7 @@ struct ExtensionConnectionAndFriendId {
 
 /**
  * Determines whether a given ToxExtConnection has an associated extension and
- * freind_id. Used as a comparator for sorting connections
+ * friend_id. Used as a comparator for sorting connections
  */
 static bool connection_has_connection_id_and_friend_id(
 	struct ToxExtConnection *connection,
@@ -160,7 +164,7 @@ struct ToxExtExtensionAndFriendId {
 
 /**
  * Determines whether a given ToxExtConnection has an associated extension and
- * freind_id. Used as a comparator for sorting connections
+ * friend_id. Used as a comparator for sorting connections
  */
 static bool connection_has_extension_and_friend_id(
 	struct ToxExtConnection *connection,
@@ -175,12 +179,15 @@ static uint16_t toxext_read_segment_id(uint8_t const *segment)
 	uint16_t id = 0;
 	id |= segment[0] << 8;
 	id |= segment[1] & 0xf8;
+	// magic numbers. 0xff - (TOXEXT_MAGIC_SIZE + TOXEXT_SEGMENT_HEADER_SIZE)?
+	// TOXEXT_SEGMENT_HEADER_SIZE?
 	return id >> 3;
 }
 
 static uint16_t toxext_read_segment_size(uint8_t const *segment)
 {
 	uint16_t size = 0;
+	// magic 0x07
 	size |= (segment[1] & 0x7) << 8;
 	size |= segment[2];
 	return size;
@@ -190,12 +197,15 @@ static void toxext_write_segemnt(uint16_t id, uint8_t const *data, size_t size,
 				 uint8_t *pBuf)
 {
 	assert(size <= TOXEXT_MAX_PACKET_SIZE);
+	// magic 13
 	assert(id < (1 << 13) - 1);
 
+	// magic 3
 	uint16_t shifted_id = id << 3;
 	pBuf[0] = (shifted_id >> 8) & 0xff;
-	pBuf[1] = (shifted_id)&0xff;
+	pBuf[1] = (shifted_id) & 0xff;
 
+	// magic 0x07, TOXEXT_MAGIC_SIZE + TOXEXT_SEGMENT_HEADER_SIZE I guess?
 	pBuf[1] |= (size & 0x0700) >> 8;
 	pBuf[2] = (size & 0x00ff);
 

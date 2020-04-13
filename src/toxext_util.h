@@ -4,6 +4,8 @@
  * Writes size bytes of data to buffer, assumes buffer fits size bytes and
  * buffer holds single byte data
  */
+// is this really public header stuff? defined as PUBLIC_HEADER in cmake
+
 #define toxext_write_to_buf(data, buffer, size)                                \
 	do {                                                                   \
 		size_t __effective_size =                                      \
