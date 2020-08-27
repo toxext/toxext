@@ -176,18 +176,23 @@ static bool connection_has_extension_and_friend_id(
 
 static uint16_t toxext_read_segment_id(uint8_t const *segment)
 {
+	/*
+	 * The segment id is the first 13 bits of the segment. See DESIGN.md for
+	 * more information
+	 */
 	uint16_t id = 0;
 	id |= segment[0] << 8;
 	id |= segment[1] & 0xf8;
-	// magic numbers. 0xff - (TOXEXT_MAGIC_SIZE + TOXEXT_SEGMENT_HEADER_SIZE)?
-	// TOXEXT_SEGMENT_HEADER_SIZE?
 	return id >> 3;
 }
 
 static uint16_t toxext_read_segment_size(uint8_t const *segment)
 {
+	/**
+	 * The segment size is 11 bits starting at bit 14. See DESIGN.md for more
+	 * information
+	 */
 	uint16_t size = 0;
-	// magic 0x07
 	size |= (segment[1] & 0x7) << 8;
 	size |= segment[2];
 	return size;
@@ -197,15 +202,22 @@ static void toxext_write_segemnt(uint16_t id, uint8_t const *data, size_t size,
 				 uint8_t *pBuf)
 {
 	assert(size <= TOXEXT_MAX_PACKET_SIZE);
-	// magic 13
+	/* The segment type is 13 bits, so the maximum ID we can use is 2^13 - 1*/
 	assert(id < (1 << 13) - 1);
 
-	// magic 3
+	/*
+	 * The segment ID does not sit cleanly on a byte boundary. Shift and mask to
+	 * pack it into the first 13 bits of the packet
+	 */
 	uint16_t shifted_id = id << 3;
 	pBuf[0] = (shifted_id >> 8) & 0xff;
 	pBuf[1] = (shifted_id) & 0xff;
 
-	// magic 0x07, TOXEXT_MAGIC_SIZE + TOXEXT_SEGMENT_HEADER_SIZE I guess?
+	/*
+	 * Segment size is 11 bits and sits cleanly with the lower 8bits sitting on
+	 * the byte boundary between bytes 2/3. Mask off the top 3 bits and put them
+	 * in byte 1. The rest fit in byte 2. See DESIGN.md for more information
+	 */
 	pBuf[1] |= (size & 0x0700) >> 8;
 	pBuf[2] = (size & 0x00ff);
 
@@ -260,20 +272,20 @@ static int toxext_append_packetbuf_data(struct ToxExtPacketBuf *packet_buf,
 /**
  * Extends packet's packetbuf list by 1
  */
-static int toxext_append_packetbuf_to_packet(struct ToxExtPacketList *packet)
+static int toxext_append_packetbuf_to_packet(struct ToxExtPacketList *packet_list)
 {
 	struct ToxExtPacketBuf *new_packet_bufs =
-		realloc(packet->packets, (packet->num_packets +
+		realloc(packet_list->packets, (packet_list->num_packets +
 					  1) * sizeof(struct ToxExtPacketBuf));
 
 	if (!new_packet_bufs) {
 		return TOXEXT_ALLOCATE_FAIL;
 	}
 
-	packet->packets = new_packet_bufs;
-	packet->num_packets++;
+	packet_list->packets = new_packet_bufs;
+	packet_list->num_packets++;
 	struct ToxExtPacketBuf *last_packet =
-		&packet->packets[packet->num_packets - 1];
+		&packet_list->packets[packet_list->num_packets - 1];
 	last_packet->len = 0;
 	toxext_init_packet_header(last_packet);
 
@@ -285,11 +297,11 @@ static int toxext_append_packetbuf_to_packet(struct ToxExtPacketList *packet)
  * extend ToxExtPacketLists to be sent over multiple toxcore packets if necessary,
  * however the input must still fit within a single toxcore packet
  */
-static int toxext_append_packet_data(struct ToxExtPacketList *packet,
+static int toxext_append_packet_data(struct ToxExtPacketList *packet_list,
 				     enum ToxExtPacketType packet_type,
 				     void const *data, size_t size)
 {
-	if (!packet) {
+	if (!packet_list) {
 		return TOXEXT_INVALID_PACKET;
 	}
 
@@ -297,18 +309,18 @@ static int toxext_append_packet_data(struct ToxExtPacketList *packet,
 		return TOXEXT_DATA_TOO_LARGE;
 	}
 
-	size_t total_size = packet->packets[packet->num_packets - 1].len +
+	size_t total_size = packet_list->packets[packet_list->num_packets - 1].len +
 			    size + TOXEXT_SEGMENT_HEADER_SIZE;
 
 	if (total_size > TOX_MAX_CUSTOM_PACKET_SIZE) {
 		int err;
-		if ((err = toxext_append_packetbuf_to_packet(packet))) {
+		if ((err = toxext_append_packetbuf_to_packet(packet_list))) {
 			return err;
 		}
 	}
 
 	struct ToxExtPacketBuf *packet_buf =
-		&packet->packets[packet->num_packets - 1];
+		&packet_list->packets[packet_list->num_packets - 1];
 
 	return toxext_append_packetbuf_data(packet_buf, packet_type, data,
 					    size);
@@ -570,52 +582,52 @@ static struct ToxExtPacketBuf *toxext_packetbuf_create()
 struct ToxExtPacketList *toxext_packet_list_create(struct ToxExt *toxext,
 						   uint32_t friend_id)
 {
-	struct ToxExtPacketList *packet =
+	struct ToxExtPacketList *packet_list =
 		malloc(sizeof(struct ToxExtPacketList));
 
-	packet->packets = toxext_packetbuf_create();
-	if (!packet->packets) {
-		free(packet);
+	packet_list->packets = toxext_packetbuf_create();
+	if (!packet_list->packets) {
+		free(packet_list);
 		return NULL;
 	}
 
-	packet->pending_packet = 0;
-	packet->num_packets = 1;
-	packet->friend_id = friend_id;
-	packet->toxext = toxext;
-	return packet;
+	packet_list->pending_packet = 0;
+	packet_list->num_packets = 1;
+	packet_list->friend_id = friend_id;
+	packet_list->toxext = toxext;
+	return packet_list;
 }
 
-static void toxext_packet_free(struct ToxExtPacketList *packet)
+static void toxext_packet_free(struct ToxExtPacketList *packet_list)
 {
-	free(packet->packets);
+	free(packet_list->packets);
 
 	/*
 	 * Remove the packetlist from the deferred packets if necessary, note that we
 	 * only check the first packet since we guarantee we send them in order
 	 */
-	if (packet->toxext->num_deferred_packets &&
-	    *packet->toxext->deferred_packets == packet) {
+	if (packet_list->toxext->num_deferred_packets &&
+	    *packet_list->toxext->deferred_packets == packet_list) {
 		/* Slide all elements back by one to preserve order */
-		memcpy(packet->toxext->deferred_packets,
-		       packet->toxext->deferred_packets + 1,
-		       packet->toxext->num_deferred_packets - 1);
+		memcpy(packet_list->toxext->deferred_packets,
+		       packet_list->toxext->deferred_packets + 1,
+		       packet_list->toxext->num_deferred_packets - 1);
 
 		/* If we fail to realloc we can still just not use that item */
-		packet->toxext->num_deferred_packets--;
+		packet_list->toxext->num_deferred_packets--;
 		/* Remove connection from list */
 		struct ToxExtPacketList **new_deferred_packets =
-			realloc(packet->toxext->deferred_packets,
-				packet->toxext->num_deferred_packets *
+			realloc(packet_list->toxext->deferred_packets,
+				packet_list->toxext->num_deferred_packets *
 					sizeof(struct ToxExtPacketList *));
 
 		if (new_deferred_packets ||
-		    packet->toxext->num_deferred_packets == 0) {
-			packet->toxext->deferred_packets = new_deferred_packets;
+		    packet_list->toxext->num_deferred_packets == 0) {
+			packet_list->toxext->deferred_packets = new_deferred_packets;
 		}
 	}
 
-	free(packet);
+	free(packet_list);
 }
 
 int toxext_packet_append(struct ToxExtPacketList *packet /*in/out*/,

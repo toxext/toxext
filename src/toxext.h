@@ -54,6 +54,7 @@ void toxext_iterate(struct ToxExt *toxext);
  * Callback for your extension. When the toxext library receives a message from
  * a friend with the same uuid as was registered, this callback will be called
  *
+ *  @param extension The extension data is being appended from
  *  @param friend_id The Tox defined session friend ID of the sender.
  *  @param data The data received.
  *  @param size The length of the data received.
@@ -73,21 +74,21 @@ typedef void (*toxext_recv_callback)(struct ToxExtExtension *extension,
  * itself and reject the negotiation request, but I argue that on new versions
  * the UUID should just be updated
  *
+ *  @param extension The extension data is being appended from
  *  @param friend_id The Tox defined session friend ID of the sender.
- *  @param compatible ***does not compatible just mean they don't have the extension, or could they somehow have an
- // incompatible version of the extension with the same UUID?***
+ *  @param compatible True if the fiend is determined to have an extension with
+ *  the same UUID, false otherwise
  *  @param userdata Arbitrary data set when handler was registered.
  *  @param response_packet A ToxExtPacketList that can be added to in response.
  */
 typedef void (*toxext_negotiate_connection_cb)(
 	struct ToxExtExtension *extension, uint32_t friend_id, bool compatible,
-	void *userdata, struct ToxExtPacketList *response_packet);
+	void *userdata, struct ToxExtPacketList *response_packet_list);
 
 /**
- * Creates a registered extension item. Must be used when sending messages for
+ * Creates a registered extension item. Must be used before sending messages for
  * this extension.
  */
- // "when"? is "before" more accurate?
 struct ToxExtExtension *toxext_register(struct ToxExt *toxext,
 					uint8_t const *uuid, void *userdata,
 					toxext_recv_callback recv_cb,
@@ -107,34 +108,29 @@ struct ToxExtPacketList *toxext_packet_list_create(struct ToxExt *toxext,
 						   uint32_t friend_id);
 
 /**
- * Appends an extension message onto an existing packet. This is the endpoint
- * extensions should use when trying to send their own data.
+ * Appends an extension message onto an existing packet list. This is the API
+ * the extensions should use when trying to send their own data.
  */
- // "existing packet" -> "existing packet list"?
- // "This is the endpoint extensions" -> "This is the endpoint the extensions"
- // not sure about "endpoint" in general vs API or function :shrug:
-int toxext_packet_append(struct ToxExtPacketList *packet /*in/out*/,
+int toxext_packet_append(struct ToxExtPacketList *packet_list /*in/out*/,
 			 struct ToxExtExtension *extension, void const *data,
 			 size_t size);
 
 /**
- * Sends and frees an existing packet
+ * Sends and frees an existing packet list
  */
- // "packet" -> "packet list"? was called a "packet list" in toxext_packet_list_create, and that seems more accurate
-int toxext_send(struct ToxExtPacketList *packet);
+int toxext_send(struct ToxExtPacketList *packet_list);
 
 /**
- * Determines if the input data is meant for ToxExt
+ * Determines if the tox custom packet data is intended for toxext. This can be
+ * used if a tox client has other custom packets and wants to know whether or
+ * not to the packet off to us
  */
- // maybe some clarification on "input data", I'm guessing this means tox custom packet data
 bool is_toxext_packet(uint8_t const *data, size_t size);
 
 /**
- * Callback for lossless custom packets from toxcore. Clients are expected to
- * attach this to their toxcore callbacks
+ * Handler for lossless custom packets from toxcore. Clients are expected to
+ * attach this to their toxcore callbacks.
  */
- // isn't this not really a callback? maybe more like a "Handling function for lossless custom packets from toxcore"?
- // if ToxExt is being registered with Toxcore's lossles custom packet directly, why is `is_toxext_packet` needed?
 int toxext_handle_lossless_custom_packet(struct ToxExt *toxext,
 					 uint32_t friend_id, void const *data,
 					 size_t size);
