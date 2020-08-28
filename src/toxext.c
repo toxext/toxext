@@ -11,8 +11,8 @@
 #define TOXEXT_MAGIC_SIZE 4
 #define TOXEXT_SEGMENT_HEADER_SIZE 3
 #define TOXEXT_PROTOCOL_VERSION 0
-#define TOXEXT_NEGOTIATE_PACKET_SIZE 22
-#define TOXEXT_NEGOTIATE_RESPONSE_PACKET_SIZE 4
+#define TOXEXT_NEGOTIATE_SEGMENT_SIZE 22
+#define TOXEXT_NEGOTIATE_RESPONSE_SEGMENT_SIZE 4
 #define UUID_SIZE 16
 
 #ifdef swap
@@ -101,41 +101,38 @@ struct ToxExtExtension {
 	void *userdata;
 };
 
-// I think this needs some consistency on terminology between "toxext packet", "packet", "toxext packet list"
-// if a "toxext packet lists" contains multiple "toxext" packets, even if a whole list can fit within one "tox packet"
-// then isn't this a "toxext packet", not a "segment of a toxext packet"?
 /**
- * A segment of a toxext packet. Each one of these is mapped to an individual
- * toxcore packet. Many of these can make up a single ToxExtPacketList
+ * ToxExt representatio of a toxcore packet. This packet may contain several
+ * toxext extension segments, and multiple of these may be sent at once in a
+ * single ToxExtPacketList
  */
-struct ToxExtPacketBuf {
+struct ToxExtPacket {
 	uint8_t buf[TOX_MAX_CUSTOM_PACKET_SIZE];
 	size_t len;
 };
 
 /**
- * A list of ToxExt packets. We may have folded multiple packets into a single
- * ToxExtPacketBuf. Internally we will refer to each segment added with
- * toxext_packet_append as a packet segment
+ * A list of ToxExt packets. We may have folded multiple extension segments
+ * into a single ToxExtPacket. Internally we will refer to each segment added
+ * with toxext_segment_append as an extension segment
  */
-// "We may have folded multiple packets into a single ToxExtPacketBuf" woh woh woh ok. Maybe I need to re-visit my last comment
 struct ToxExtPacketList {
 	struct ToxExt *toxext;
-	struct ToxExtPacketBuf *packets;
+	struct ToxExtPacket *packets;
 	size_t pending_packet;
 	size_t num_packets;
 	uint32_t friend_id;
 };
 
-enum ToxExtPacketType {
-	TOXEXT_PACKET_NEGOTIATE,
-	TOXEXT_PACKET_NEGOTIATE_RESPONSE,
-	TOXEXT_PACKET_REVOKE,
-	/* Extensions will start identifying themselves at TOXEXT_PACKET_CUSTOM_START */
-	TOXEXT_PACKET_CUSTOM_START
+enum ToxExtSegmentType {
+	TOXEXT_SEGMENT_NEGOTIATE,
+	TOXEXT_SEGMENT_NEGOTIATE_RESPONSE,
+	TOXEXT_SEGMENT_REVOKE,
+	/* Extensions will start identifying themselves at TOXEXT_SEGMENT_CUSTOM_START */
+	TOXEXT_SEGMENT_CUSTOM_START
 };
 
-enum ToxExtNegotiatePacketType {
+enum ToxExtNegotiateSegmentType {
 	TOXEXT_NEGOTIATE_REQUEST,
 	TOXEXT_NEGOTIATE_SUPPORTED,
 };
@@ -198,10 +195,10 @@ static uint16_t toxext_read_segment_size(uint8_t const *segment)
 	return size;
 }
 
-static void toxext_write_segemnt(uint16_t id, uint8_t const *data, size_t size,
+static void toxext_write_segment(uint16_t id, uint8_t const *data, size_t size,
 				 uint8_t *pBuf)
 {
-	assert(size <= TOXEXT_MAX_PACKET_SIZE);
+	assert(size <= TOXEXT_MAX_SEGMENT_SIZE);
 	/* The segment type is 13 bits, so the maximum ID we can use is 2^13 - 1*/
 	assert(id < (1 << 13) - 1);
 
@@ -232,7 +229,7 @@ static void toxext_write_segemnt(uint16_t id, uint8_t const *data, size_t size,
 /**
  * Initializes a toxcore packet with the toxext magic
  */
-static int toxext_init_packet_header(struct ToxExtPacketBuf *packet_buf)
+static int toxext_init_packet_header(struct ToxExtPacket *packet_buf)
 {
 	toxext_write_int32(packet_buf->buf, TOXEXT_MAGIC);
 	packet_buf->len = 4;
@@ -241,50 +238,50 @@ static int toxext_init_packet_header(struct ToxExtPacketBuf *packet_buf)
 }
 
 /**
- * Appends a toxcore packet with data associated with the given packet type.
+ * Appends a toxcore packet with an extension segment.
  * This must fit in a single toxcore packet
  */
-static int toxext_append_packetbuf_data(struct ToxExtPacketBuf *packet_buf,
-					enum ToxExtPacketType packet_type,
+static int toxext_append_segment_data_to_packet(struct ToxExtPacket *packet,
+					enum ToxExtSegmentType segment_type,
 					void const *data, size_t size)
 {
 	size_t const total_size =
-		packet_buf->len + size + TOXEXT_SEGMENT_HEADER_SIZE;
+		packet->len + size + TOXEXT_SEGMENT_HEADER_SIZE;
 
 	if (total_size > TOX_MAX_CUSTOM_PACKET_SIZE) {
 		return TOXEXT_DATA_TOO_LARGE;
 	}
 
-	assert(TOXEXT_MAX_PACKET_SIZE <= INT32_MAX);
+	assert(TOXEXT_MAX_SEGMENT_SIZE <= INT32_MAX);
 
-	toxext_write_segemnt(packet_type, data, size,
-			     &packet_buf->buf[packet_buf->len]);
+	toxext_write_segment(segment_type, data, size,
+			     &packet->buf[packet->len]);
 
-	packet_buf->len += TOXEXT_SEGMENT_HEADER_SIZE;
-	packet_buf->len += size;
+	packet->len += TOXEXT_SEGMENT_HEADER_SIZE;
+	packet->len += size;
 
 	/* We checked this at the start, just make sure we didn't make a mistake */
-	assert(packet_buf->len <= TOX_MAX_CUSTOM_PACKET_SIZE);
+	assert(packet->len <= TOX_MAX_CUSTOM_PACKET_SIZE);
 
 	return TOXEXT_SUCCESS;
 }
 
 /**
- * Extends packet's packetbuf list by 1
+ * Extends packet list's packet count by 1
  */
-static int toxext_append_packetbuf_to_packet(struct ToxExtPacketList *packet_list)
+static int toxext_append_packet_to_packet_list(struct ToxExtPacketList *packet_list)
 {
-	struct ToxExtPacketBuf *new_packet_bufs =
+	struct ToxExtPacket *new_packet =
 		realloc(packet_list->packets, (packet_list->num_packets +
-					  1) * sizeof(struct ToxExtPacketBuf));
+					  1) * sizeof(struct ToxExtPacket));
 
-	if (!new_packet_bufs) {
+	if (!new_packet) {
 		return TOXEXT_ALLOCATE_FAIL;
 	}
 
-	packet_list->packets = new_packet_bufs;
+	packet_list->packets = new_packet;
 	packet_list->num_packets++;
-	struct ToxExtPacketBuf *last_packet =
+	struct ToxExtPacket *last_packet =
 		&packet_list->packets[packet_list->num_packets - 1];
 	last_packet->len = 0;
 	toxext_init_packet_header(last_packet);
@@ -293,19 +290,20 @@ static int toxext_append_packetbuf_to_packet(struct ToxExtPacketList *packet_lis
 }
 
 /**
- * Adds data to packet. Note that packet_type may be an extension ID. This will
- * extend ToxExtPacketLists to be sent over multiple toxcore packets if necessary,
- * however the input must still fit within a single toxcore packet
+ * Adds extension segment to the packet list. Note that segment_type may be an
+ * extension ID. This will extend ToxExtPacketLists to be sent over multiple
+ * toxcore packets if necessary, however the segment must still fit within a
+ * single toxcore packet
  */
-static int toxext_append_packet_data(struct ToxExtPacketList *packet_list,
-				     enum ToxExtPacketType packet_type,
+static int toxext_append_segment_to_packet_list(struct ToxExtPacketList *packet_list,
+				     enum ToxExtSegmentType segment_type,
 				     void const *data, size_t size)
 {
 	if (!packet_list) {
-		return TOXEXT_INVALID_PACKET;
+		return TOXEXT_INVALID_SEGMENT;
 	}
 
-	if (size > TOXEXT_MAX_PACKET_SIZE) {
+	if (size > TOXEXT_MAX_SEGMENT_SIZE) {
 		return TOXEXT_DATA_TOO_LARGE;
 	}
 
@@ -314,15 +312,15 @@ static int toxext_append_packet_data(struct ToxExtPacketList *packet_list,
 
 	if (total_size > TOX_MAX_CUSTOM_PACKET_SIZE) {
 		int err;
-		if ((err = toxext_append_packetbuf_to_packet(packet_list))) {
+		if ((err = toxext_append_packet_to_packet_list(packet_list))) {
 			return err;
 		}
 	}
 
-	struct ToxExtPacketBuf *packet_buf =
+	struct ToxExtPacket *packet =
 		&packet_list->packets[packet_list->num_packets - 1];
 
-	return toxext_append_packetbuf_data(packet_buf, packet_type, data,
+	return toxext_append_segment_data_to_packet(packet, segment_type, data,
 					    size);
 }
 
@@ -332,7 +330,7 @@ static int toxext_append_packet_data(struct ToxExtPacketList *packet_list,
  */
 static uint32_t toxext_get_first_unused_id(struct ToxExt *toxext)
 {
-	uint16_t proposed_id = TOXEXT_PACKET_CUSTOM_START;
+	uint16_t proposed_id = TOXEXT_SEGMENT_CUSTOM_START;
 	size_t i = 0;
 
 	while (i < toxext->num_extensions) {
@@ -567,11 +565,11 @@ static struct ToxExtExtension *toxext_lookup_local_id(struct ToxExt *toxext,
 }
 
 /**
- * Creates a packet buffer
+ * Creates a toxext packet
  */
-static struct ToxExtPacketBuf *toxext_packetbuf_create()
+static struct ToxExtPacket *toxext_packet_create()
 {
-	struct ToxExtPacketBuf *ret = malloc(sizeof(struct ToxExtPacketBuf));
+	struct ToxExtPacket *ret = malloc(sizeof(struct ToxExtPacket));
 	if (ret) {
 		ret->len = 0;
 		toxext_init_packet_header(ret);
@@ -585,7 +583,7 @@ struct ToxExtPacketList *toxext_packet_list_create(struct ToxExt *toxext,
 	struct ToxExtPacketList *packet_list =
 		malloc(sizeof(struct ToxExtPacketList));
 
-	packet_list->packets = toxext_packetbuf_create();
+	packet_list->packets = toxext_packet_create();
 	if (!packet_list->packets) {
 		free(packet_list);
 		return NULL;
@@ -598,7 +596,10 @@ struct ToxExtPacketList *toxext_packet_list_create(struct ToxExt *toxext,
 	return packet_list;
 }
 
-static void toxext_packet_free(struct ToxExtPacketList *packet_list)
+/**
+ * Frees a packet list along with all owned data inside
+ */
+static void toxext_packet_list_free(struct ToxExtPacketList *packet_list)
 {
 	free(packet_list->packets);
 
@@ -630,20 +631,20 @@ static void toxext_packet_free(struct ToxExtPacketList *packet_list)
 	free(packet_list);
 }
 
-int toxext_packet_append(struct ToxExtPacketList *packet /*in/out*/,
+int toxext_segment_append(struct ToxExtPacketList *packet /*in/out*/,
 			 struct ToxExtExtension *extension, void const *data,
 			 size_t size)
 {
-	return toxext_append_packet_data(packet, extension->id, data, size);
+	return toxext_append_segment_to_packet_list(packet, extension->id, data, size);
 }
 
-static int toxext_packet_defer(struct ToxExtPacketList *packet)
+static int toxext_packet_list_defer(struct ToxExtPacketList *packet_list)
 {
-	struct ToxExt *toxext = packet->toxext;
+	struct ToxExt *toxext = packet_list->toxext;
 
 	/* Only check the first packet since we must send our deferred packets in order */
 	if (toxext->num_deferred_packets > 0 &&
-	    *toxext->deferred_packets == packet) {
+	    *toxext->deferred_packets == packet_list) {
 		/* No work to do, we're already sending this deferred packet */
 		return TOXEXT_SUCCESS;
 	}
@@ -660,34 +661,34 @@ static int toxext_packet_defer(struct ToxExtPacketList *packet)
 	toxext->deferred_packets = new_deferred_packets;
 	toxext->num_deferred_packets++;
 
-	toxext->deferred_packets[toxext->num_deferred_packets - 1] = packet;
+	toxext->deferred_packets[toxext->num_deferred_packets - 1] = packet_list;
 
 	return TOXEXT_SUCCESS;
 }
 
-int toxext_send(struct ToxExtPacketList *packet)
+int toxext_send(struct ToxExtPacketList *packet_list)
 {
 	/* FIXME: No test to verify this is right */
-	if (packet->packets[0].len == TOXEXT_MAGIC_SIZE) {
-		toxext_packet_free(packet);
+	if (packet_list->packets[0].len == TOXEXT_MAGIC_SIZE) {
+		toxext_packet_list_free(packet_list);
 		return TOXEXT_SUCCESS;
 	}
 
 	/* Ensure ordered packets by deferring this packet if there are already deferred packets */
-	if (packet->toxext->num_deferred_packets > 0 &&
-	    *packet->toxext->deferred_packets != packet) {
-		toxext_packet_defer(packet);
+	if (packet_list->toxext->num_deferred_packets > 0 &&
+	    *packet_list->toxext->deferred_packets != packet_list) {
+		toxext_packet_list_defer(packet_list);
 		return TOXEXT_SUCCESS;
 	}
 
 	bool success = true;
 	TOX_ERR_FRIEND_CUSTOM_PACKET err;
-	for (size_t i = packet->pending_packet; i < packet->num_packets; ++i) {
-		packet->pending_packet = i;
+	for (size_t i = packet_list->pending_packet; i < packet_list->num_packets; ++i) {
+		packet_list->pending_packet = i;
 
-		struct ToxExtPacketBuf *packet_buf = &packet->packets[i];
+		struct ToxExtPacket *packet_buf = &packet_list->packets[i];
 		bool packet_success = tox_friend_send_lossless_packet(
-			packet->toxext->tox, packet->friend_id, packet_buf->buf,
+			packet_list->toxext->tox, packet_list->friend_id, packet_buf->buf,
 			packet_buf->len, &err);
 
 		success = success && packet_success;
@@ -697,14 +698,14 @@ int toxext_send(struct ToxExtPacketList *packet)
 	}
 
 	if (!success && err == TOX_ERR_FRIEND_CUSTOM_PACKET_SENDQ) {
-		toxext_packet_defer(packet);
+		toxext_packet_list_defer(packet_list);
 		/*
 		 * In this case we want to flag to the caller that this was a success, we'll
 		 * handle the rest later
 		 */
 		success = true;
 	} else {
-		toxext_packet_free(packet);
+		toxext_packet_list_free(packet_list);
 	}
 
 	/**
@@ -732,11 +733,11 @@ struct ToxExtNegotiateRequest {
 };
 
 static int
-toxext_parse_negotiate_packet(uint8_t const *data, size_t size,
+toxext_parse_negotiate_segment(uint8_t const *data, size_t size,
 			      struct ToxExtNegotiateRequest *negotiate_request)
 {
-	if (size != TOXEXT_NEGOTIATE_PACKET_SIZE) {
-		return TOXEXT_INVALID_PACKET;
+	if (size != TOXEXT_NEGOTIATE_SEGMENT_SIZE) {
+		return TOXEXT_INVALID_SEGMENT;
 	}
 
 	uint8_t const *it = data;
@@ -760,16 +761,16 @@ static void toxext_append_negotiate_response(uint16_t remote_id,
 					     uint16_t local_id, bool compatible,
 					     struct ToxExtPacketList *packet)
 {
-	uint8_t data[TOXEXT_NEGOTIATE_RESPONSE_PACKET_SIZE];
+	uint8_t data[TOXEXT_NEGOTIATE_RESPONSE_SEGMENT_SIZE];
 	toxext_write_uint16(data, remote_id << 3);
 	data[1] |= ((local_id & 0xe0000) >> 13) & 0xff;
 	data[2] = (local_id >> 2 & 0xff);
 	data[3] = (local_id << 6) & 0xff;
 	data[3] |= compatible << 5;
 
-	int err = toxext_append_packet_data(
-		packet, TOXEXT_PACKET_NEGOTIATE_RESPONSE, data,
-		TOXEXT_NEGOTIATE_RESPONSE_PACKET_SIZE);
+	int err = toxext_append_segment_to_packet_list(
+		packet, TOXEXT_SEGMENT_NEGOTIATE_RESPONSE, data,
+		TOXEXT_NEGOTIATE_RESPONSE_SEGMENT_SIZE);
 	assert(err == 0);
 	(void)err;
 }
@@ -779,12 +780,12 @@ static void toxext_append_negotiate_response(uint16_t remote_id,
  * find out if we have a given extension
  */
 static int
-toxext_handle_negotiate_packet(struct ToxExt *toxext, uint32_t friend_id,
+toxext_handle_negotiate_segment(struct ToxExt *toxext, uint32_t friend_id,
 			       uint8_t const *data, size_t size,
-			       struct ToxExtPacketList *output_packet)
+			       struct ToxExtPacketList *output_packet_list)
 {
 	struct ToxExtNegotiateRequest request;
-	int err = toxext_parse_negotiate_packet(data, size, &request);
+	int err = toxext_parse_negotiate_segment(data, size, &request);
 	if (err != TOXEXT_SUCCESS) {
 		return err;
 	}
@@ -794,7 +795,7 @@ toxext_handle_negotiate_packet(struct ToxExt *toxext, uint32_t friend_id,
 	/* If we don't have the extension we have no work to do */
 	if (!extension) {
 		toxext_append_negotiate_response(request.remote_id, 0, false,
-						 output_packet);
+						 output_packet_list);
 
 		return TOXEXT_SUCCESS;
 	}
@@ -808,11 +809,11 @@ toxext_handle_negotiate_packet(struct ToxExt *toxext, uint32_t friend_id,
 	}
 
 	toxext_append_negotiate_response(request.remote_id, extension->id, true,
-					 output_packet);
+					 output_packet_list);
 
 	/* A negotiation request indicates that they do have the extension. Let our extension know */
 	extension->negotiate_extension_cb(extension, friend_id, true,
-					  extension->userdata, output_packet);
+					  extension->userdata, output_packet_list);
 
 	return TOXEXT_SUCCESS;
 }
@@ -824,11 +825,11 @@ struct ToxExtNegotiateResponse {
 };
 
 static int
-toxext_parse_negotiate_response_packet(uint8_t const *data, size_t size,
+toxext_parse_negotiate_response_segment(uint8_t const *data, size_t size,
 				       struct ToxExtNegotiateResponse *response)
 {
-	if (size != TOXEXT_NEGOTIATE_RESPONSE_PACKET_SIZE) {
-		return TOXEXT_INVALID_PACKET;
+	if (size != TOXEXT_NEGOTIATE_RESPONSE_SEGMENT_SIZE) {
+		return TOXEXT_INVALID_SEGMENT;
 	}
 
 	uint8_t const *it = data;
@@ -846,12 +847,12 @@ toxext_parse_negotiate_response_packet(uint8_t const *data, size_t size,
 	return TOXEXT_SUCCESS;
 }
 
-static int toxext_handle_negotiate_response_packet(
+static int toxext_handle_negotiate_response_segment(
 	struct ToxExt *toxext, uint32_t friend_id, uint8_t const *data,
-	size_t size, struct ToxExtPacketList *output_packet)
+	size_t size, struct ToxExtPacketList *output_packet_list)
 {
 	struct ToxExtNegotiateResponse response;
-	int err = toxext_parse_negotiate_response_packet(data, size, &response);
+	int err = toxext_parse_negotiate_response_segment(data, size, &response);
 	if (err != TOXEXT_SUCCESS) {
 		return err;
 	}
@@ -876,17 +877,17 @@ static int toxext_handle_negotiate_response_packet(
 	}
 
 	extension->negotiate_extension_cb(extension, friend_id, true,
-					  extension->userdata, output_packet);
+					  extension->userdata, output_packet_list);
 
 	return TOXEXT_SUCCESS;
 }
 
-static int toxext_handle_revoke_packet(struct ToxExt *toxext,
+static int toxext_handle_revoke_segment(struct ToxExt *toxext,
 				       uint32_t friend_id, uint8_t const *data,
 				       size_t size)
 {
 	if (size != 2) {
-		return TOXEXT_INVALID_PACKET;
+		return TOXEXT_INVALID_SEGMENT;
 	}
 
 	uint8_t const *it = data;
@@ -916,36 +917,36 @@ static int toxext_handle_revoke_packet(struct ToxExt *toxext,
 
 /**
  * Each toxext packet list can have several extension's data associated with them.
- * This handles a single packet segment.
+ * This handles a single extension segment.
  */
 static int toxext_handle_lossless_custom_packet_segment(
-	struct ToxExt *toxext, enum ToxExtPacketType packet_type,
+	struct ToxExt *toxext, enum ToxExtSegmentType segment_type,
 	uint32_t friend_id, uint8_t const *data, size_t size,
-	struct ToxExtPacketList *output_packet)
+	struct ToxExtPacketList *output_packet_list)
 {
-	switch (packet_type) {
-	case TOXEXT_PACKET_NEGOTIATE: {
-		return toxext_handle_negotiate_packet(toxext, friend_id, data,
-						      size, output_packet);
+	switch (segment_type) {
+	case TOXEXT_SEGMENT_NEGOTIATE: {
+		return toxext_handle_negotiate_segment(toxext, friend_id, data,
+						      size, output_packet_list);
 	}
-	case TOXEXT_PACKET_NEGOTIATE_RESPONSE: {
-		return toxext_handle_negotiate_response_packet(
-			toxext, friend_id, data, size, output_packet);
+	case TOXEXT_SEGMENT_NEGOTIATE_RESPONSE: {
+		return toxext_handle_negotiate_response_segment(
+			toxext, friend_id, data, size, output_packet_list);
 	}
-	case TOXEXT_PACKET_REVOKE: {
-		return toxext_handle_revoke_packet(toxext, friend_id, data,
+	case TOXEXT_SEGMENT_REVOKE: {
+		return toxext_handle_revoke_segment(toxext, friend_id, data,
 						   size);
 	}
 	default: {
 		/* Reuse the packet_type field as a connection_id */
 		struct ToxExtConnection *connection =
-			toxext_id_to_connection(toxext, packet_type, friend_id);
+			toxext_id_to_connection(toxext, segment_type, friend_id);
 
 		if (connection) {
 			struct ToxExtExtension *extension =
 				connection->extension;
 			extension->recv_cb(extension, friend_id, data, size,
-					   extension->userdata, output_packet);
+					   extension->userdata, output_packet_list);
 		} else {
 			return TOXEXT_NOT_CONNECTED;
 		}
@@ -959,13 +960,13 @@ int toxext_handle_lossless_custom_packet(struct ToxExt *toxext,
 					 size_t size)
 {
 	if (size < TOXEXT_MAGIC_SIZE + TOXEXT_SEGMENT_HEADER_SIZE) {
-		return TOXEXT_INVALID_PACKET;
+		return TOXEXT_INVALID_SEGMENT;
 	}
 
 	uint8_t const *const data = data_v;
 
 	if (toxext_read_int32(data) != TOXEXT_MAGIC) {
-		return TOXEXT_INVALID_PACKET;
+		return TOXEXT_INVALID_SEGMENT;
 	}
 
 	uint8_t const *it = data + TOXEXT_MAGIC_SIZE;
@@ -974,7 +975,7 @@ int toxext_handle_lossless_custom_packet(struct ToxExt *toxext,
 		toxext_packet_list_create(toxext, friend_id);
 	while ((size_t)(it - data) < size) {
 		if (size < TOXEXT_SEGMENT_HEADER_SIZE) {
-			return TOXEXT_INVALID_PACKET;
+			return TOXEXT_INVALID_SEGMENT;
 		}
 		uint16_t segment_type = toxext_read_segment_id(it);
 		uint16_t segment_size = toxext_read_segment_size(it);
@@ -994,30 +995,32 @@ int toxext_handle_lossless_custom_packet(struct ToxExt *toxext,
 int toxext_negotiate_connection(struct ToxExtExtension *extension,
 				uint32_t friend_id)
 {
-	uint8_t data[TOXEXT_NEGOTIATE_PACKET_SIZE];
+	uint8_t data[TOXEXT_NEGOTIATE_SEGMENT_SIZE];
 
 	toxext_write_int32(data, TOXEXT_PROTOCOL_VERSION);
 	memcpy(data + 4, extension->uuid, sizeof(extension->uuid));
 	toxext_write_uint16(data + 20, extension->id << 3);
 
-	struct ToxExtPacketBuf packet_buf;
-	int err = toxext_init_packet_header(&packet_buf);
+	struct ToxExtPacket packet;
+	int err = toxext_init_packet_header(&packet);
 
 	/* If we are not constructing a valid packet we've done soemthing very wrong */
 	assert(err == 0);
 	(void)err;
 
-	err = toxext_append_packetbuf_data(&packet_buf, TOXEXT_PACKET_NEGOTIATE,
+	err = toxext_append_segment_data_to_packet(&packet, TOXEXT_SEGMENT_NEGOTIATE,
 					   data, sizeof(data));
 
 	assert(err == 0);
 
 	err = !tox_friend_send_lossless_packet(extension->toxext->tox,
-					       friend_id, packet_buf.buf,
-					       packet_buf.len, NULL);
+					       friend_id, packet.buf,
+					       packet.len, NULL);
 
-	// Error clobbering is kinda lame but our error types are different, we can
-	// propogate the toxcore error in an error* field later if we like
+	/**
+	 * Error clobbering is kinda lame but our error types are different, we can
+	 * propogate the toxcore error in an error* field later if we like
+	 */
 	if (err) {
 		return TOXEXT_SEND_FAILED;
 	}
@@ -1048,14 +1051,14 @@ int toxext_revoke_connection(struct ToxExtExtension *extension,
 	}
 
 	/* Indicate to friend that we no longer support this extension */
-	struct ToxExtPacketBuf packet_buf;
-	int err = toxext_init_packet_header(&packet_buf);
+	struct ToxExtPacket packet;
+	int err = toxext_init_packet_header(&packet);
 	assert(err == 0);
 	(void)err;
 
 	uint8_t data[2];
 	toxext_write_uint16(data, connection->connection_id << 3);
-	err = toxext_append_packetbuf_data(&packet_buf, TOXEXT_PACKET_REVOKE,
+	err = toxext_append_segment_data_to_packet(&packet, TOXEXT_SEGMENT_REVOKE,
 					   data, sizeof(data));
 
 	assert(err == 0);
@@ -1065,7 +1068,7 @@ int toxext_revoke_connection(struct ToxExtExtension *extension,
 	 * we don't accept them anymore
 	 */
 	tox_friend_send_lossless_packet(extension->toxext->tox, friend_id,
-					packet_buf.buf, packet_buf.len, NULL);
+					packet.buf, packet.len, NULL);
 
 	/* If we fail to realloc we can still just not use that item */
 	toxext->num_connections--;

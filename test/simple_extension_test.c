@@ -52,7 +52,7 @@ static int my_extension_create_add_request(struct MyExtension *my_extension,
 	request->a = a;
 	request->b = b;
 
-	return toxext_packet_append(packet, my_extension->extension_handle,
+	return toxext_segment_append(packet, my_extension->extension_handle,
 				    data, 9);
 };
 
@@ -84,7 +84,7 @@ void my_extension_recv_callback(struct ToxExtExtension *extension,
 			(struct MyExtensionResponse *)(response_data + 1);
 		response->res = request->a + request->b;
 
-		int err = toxext_packet_append(response_packet, extension,
+		int err = toxext_segment_append(response_packet, extension,
 					       response_data, 5);
 		assert(err == 0);
 

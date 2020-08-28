@@ -21,7 +21,7 @@ struct ToxExtExtension;
  */
 struct ToxExtPacketList;
 
-#define TOXEXT_MAX_PACKET_SIZE (TOX_MAX_CUSTOM_PACKET_SIZE - 7)
+#define TOXEXT_MAX_SEGMENT_SIZE (TOX_MAX_CUSTOM_PACKET_SIZE - 7)
 
 enum Toxext_Error {
 	TOXEXT_SUCCESS = 0,
@@ -29,7 +29,7 @@ enum Toxext_Error {
 	TOXEXT_DOES_NOT_EXIST,
 	TOXEXT_NOT_SUPPORTED,
 	TOXEXT_ALLOCATE_FAIL,
-	TOXEXT_INVALID_PACKET,
+	TOXEXT_INVALID_SEGMENT,
 	TOXEXT_NOT_CONNECTED,
 	TOXEXT_SEND_FAILED,
 };
@@ -59,12 +59,12 @@ void toxext_iterate(struct ToxExt *toxext);
  *  @param data The data received.
  *  @param size The length of the data received.
  *  @param userdata Arbitrary data set when handler was registered.
- *  @param response_packet A ToxExtPacketList that can be added to in response.
+ *  @param response_packet_list A ToxExtPacketList that can be added to in response.
  */
 typedef void (*toxext_recv_callback)(struct ToxExtExtension *extension,
 				     uint32_t friend_id, void const *data,
 				     size_t size, void *userdata,
-				     struct ToxExtPacketList *response_packet);
+				     struct ToxExtPacketList *response_packet_list);
 
 /**
  * Negotiation callback. This is called after a friend acknowledges your
@@ -79,7 +79,7 @@ typedef void (*toxext_recv_callback)(struct ToxExtExtension *extension,
  *  @param compatible True if the fiend is determined to have an extension with
  *  the same UUID, false otherwise
  *  @param userdata Arbitrary data set when handler was registered.
- *  @param response_packet A ToxExtPacketList that can be added to in response.
+ *  @param response_packet_list A ToxExtPacketList that can be added to in response.
  */
 typedef void (*toxext_negotiate_connection_cb)(
 	struct ToxExtExtension *extension, uint32_t friend_id, bool compatible,
@@ -108,10 +108,10 @@ struct ToxExtPacketList *toxext_packet_list_create(struct ToxExt *toxext,
 						   uint32_t friend_id);
 
 /**
- * Appends an extension message onto an existing packet list. This is the API
+ * Appends an extension segment onto an existing packet list. This is the API
  * the extensions should use when trying to send their own data.
  */
-int toxext_packet_append(struct ToxExtPacketList *packet_list /*in/out*/,
+int toxext_segment_append(struct ToxExtPacketList *packet_list /*in/out*/,
 			 struct ToxExtExtension *extension, void const *data,
 			 size_t size);
 
