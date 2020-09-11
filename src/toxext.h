@@ -54,7 +54,7 @@ void toxext_iterate(struct ToxExt *toxext);
  * Callback for your extension. When the toxext library receives a message from
  * a friend with the same uuid as was registered, this callback will be called
  *
- *  @param extension The extension data is being appended from
+ *  @param extension The extension that the data is being appended from.
  *  @param friend_id The Tox defined session friend ID of the sender.
  *  @param data The data received.
  *  @param size The length of the data received.

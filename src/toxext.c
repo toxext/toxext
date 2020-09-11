@@ -102,7 +102,7 @@ struct ToxExtExtension {
 };
 
 /**
- * ToxExt representatio of a toxcore packet. This packet may contain several
+ * ToxExt representation of a toxcore packet. This packet may contain several
  * toxext extension segments, and multiple of these may be sent at once in a
  * single ToxExtPacketList
  */
@@ -200,7 +200,7 @@ static void toxext_write_segment(uint16_t id, uint8_t const *data, size_t size,
 {
 	assert(size <= TOXEXT_MAX_SEGMENT_SIZE);
 	/* The segment type is 13 bits, so the maximum ID we can use is 2^13 - 1*/
-	assert(id < (1 << 13) - 1);
+	assert(id < (1 << 13));
 
 	/*
 	 * The segment ID does not sit cleanly on a byte boundary. Shift and mask to
@@ -211,7 +211,7 @@ static void toxext_write_segment(uint16_t id, uint8_t const *data, size_t size,
 	pBuf[1] = (shifted_id) & 0xff;
 
 	/*
-	 * Segment size is 11 bits and sits cleanly with the lower 8bits sitting on
+	 * Segment size is 11 bits and sits cleanly with the lower 8 bits sitting on
 	 * the byte boundary between bytes 2/3. Mask off the top 3 bits and put them
 	 * in byte 1. The rest fit in byte 2. See DESIGN.md for more information
 	 */
@@ -357,6 +357,10 @@ static bool toxext_is_same(struct ToxExtExtension **a,
 struct ToxExt *toxext_init(struct Tox *tox)
 {
 	struct ToxExt *toxext = malloc(sizeof(struct ToxExt));
+	if (!toxext) {
+		return NULL;
+	}
+
 	toxext->tox = tox;
 	toxext->extensions = NULL;
 	toxext->num_extensions = 0;
@@ -402,6 +406,9 @@ struct ToxExtExtension *toxext_register(struct ToxExt *toxext,
 {
 	struct ToxExtExtension *extension =
 		malloc(sizeof(struct ToxExtExtension));
+	if (!extension) {
+		return NULL;
+	}
 
 	extension->toxext = toxext;
 	memcpy(extension->uuid, uuid, sizeof(extension->uuid));
@@ -419,6 +426,7 @@ struct ToxExtExtension *toxext_register(struct ToxExt *toxext,
 		toxext->extensions[toxext->num_extensions] = extension;
 		toxext->num_extensions++;
 	} else {
+		free(extension);
 		return NULL;
 	}
 
@@ -582,6 +590,9 @@ struct ToxExtPacketList *toxext_packet_list_create(struct ToxExt *toxext,
 {
 	struct ToxExtPacketList *packet_list =
 		malloc(sizeof(struct ToxExtPacketList));
+	if (!packet_list) {
+		return NULL;
+	}
 
 	packet_list->packets = toxext_packet_create();
 	if (!packet_list->packets) {
@@ -677,8 +688,7 @@ int toxext_send(struct ToxExtPacketList *packet_list)
 	/* Ensure ordered packets by deferring this packet if there are already deferred packets */
 	if (packet_list->toxext->num_deferred_packets > 0 &&
 	    *packet_list->toxext->deferred_packets != packet_list) {
-		toxext_packet_list_defer(packet_list);
-		return TOXEXT_SUCCESS;
+		return toxext_packet_list_defer(packet_list);
 	}
 
 	bool success = true;
@@ -698,11 +708,15 @@ int toxext_send(struct ToxExtPacketList *packet_list)
 	}
 
 	if (!success && err == TOX_ERR_FRIEND_CUSTOM_PACKET_SENDQ) {
-		toxext_packet_list_defer(packet_list);
+		int err = toxext_packet_list_defer(packet_list);
+		if (err != TOXEXT_SUCCESS) {
+			toxext_packet_list_free(packet_list);
+			return err;
+		}
 		/*
-		 * In this case we want to flag to the caller that this was a success, we'll
-		 * handle the rest later
-		 */
+		* In this case we want to flag to the caller that this was a success, we'll
+		* handle the rest later
+		*/
 		success = true;
 	} else {
 		toxext_packet_list_free(packet_list);
@@ -1073,7 +1087,7 @@ int toxext_revoke_connection(struct ToxExtExtension *extension,
 	/* If we fail to realloc we can still just not use that item */
 	toxext->num_connections--;
 	/* Remove connection from list */
-	struct ToxExtConnection *new_connections = new_connections = realloc(
+	struct ToxExtConnection *new_connections = realloc(
 		toxext->connections,
 		toxext->num_connections * sizeof(struct ToxExtConnection));
 
