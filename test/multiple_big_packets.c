@@ -6,25 +6,25 @@
 #include <string.h>
 
 static uint8_t const my_extension_uuid[16] = {};
-static uint8_t const buf_a[TOXEXT_MAX_PACKET_SIZE] = { 0x00, 0x01, 0x02, 0x03 };
-static uint8_t const buf_b[TOXEXT_MAX_PACKET_SIZE] = { 0xff, 0xfe, 0xfd, 0xfc };
-static uint8_t const buf_c[TOXEXT_MAX_PACKET_SIZE] = { 0xfe, 0xfe, 0xfd, 0xfc };
-static uint8_t const buf_d[TOXEXT_MAX_PACKET_SIZE] = { 0xfd, 0xfe, 0xfd, 0xfc };
+static uint8_t const buf_a[TOXEXT_MAX_SEGMENT_SIZE] = { 0x00, 0x01, 0x02, 0x03 };
+static uint8_t const buf_b[TOXEXT_MAX_SEGMENT_SIZE] = { 0xff, 0xfe, 0xfd, 0xfc };
+static uint8_t const buf_c[TOXEXT_MAX_SEGMENT_SIZE] = { 0xfe, 0xfe, 0xfd, 0xfc };
+static uint8_t const buf_d[TOXEXT_MAX_SEGMENT_SIZE] = { 0xfd, 0xfe, 0xfd, 0xfc };
 
 struct MyExtensionUser {
 	struct ToxExtUser toxext_user;
 	struct ToxExtExtension *extension_handle;
-	uint8_t buf_a[TOXEXT_MAX_PACKET_SIZE];
-	uint8_t buf_b[TOXEXT_MAX_PACKET_SIZE];
-	uint8_t buf_c[TOXEXT_MAX_PACKET_SIZE];
-	uint8_t buf_d[TOXEXT_MAX_PACKET_SIZE];
+	uint8_t buf_a[TOXEXT_MAX_SEGMENT_SIZE];
+	uint8_t buf_b[TOXEXT_MAX_SEGMENT_SIZE];
+	uint8_t buf_c[TOXEXT_MAX_SEGMENT_SIZE];
+	uint8_t buf_d[TOXEXT_MAX_SEGMENT_SIZE];
 };
 
 int my_extension_create_buf_request(struct ToxExtExtension *extension,
 				    uint8_t const *data, size_t size,
 				    struct ToxExtPacketList *packet)
 {
-	return toxext_packet_append(packet, extension, data, size);
+	return toxext_segment_append(packet, extension, data, size);
 }
 
 void my_extension_recv_callback(struct ToxExtExtension *extension,
@@ -108,12 +108,12 @@ int main(void)
 	struct ToxExtPacketList *packet = toxext_packet_list_create(
 		user_a.toxext_user.toxext, user_b.toxext_user.tox_user.id);
 	int err = my_extension_create_buf_request(
-		user_a.extension_handle, buf_a, TOXEXT_MAX_PACKET_SIZE, packet);
+		user_a.extension_handle, buf_a, TOXEXT_MAX_SEGMENT_SIZE, packet);
 
 	assert(err == TOXEXT_SUCCESS);
 
 	err = my_extension_create_buf_request(user_a.extension_handle, buf_b,
-					      TOXEXT_MAX_PACKET_SIZE, packet);
+					      TOXEXT_MAX_SEGMENT_SIZE, packet);
 
 	assert(err == TOXEXT_SUCCESS);
 
@@ -126,36 +126,36 @@ int main(void)
 	 * With 2 big buffers we expect the message to fit within two packets, so no
 	 * toxext_iterate should be sufficient
 	 */
-	assert(memcmp(user_b.buf_a, buf_a, TOXEXT_MAX_PACKET_SIZE) == 0);
-	assert(memcmp(user_b.buf_b, buf_b, TOXEXT_MAX_PACKET_SIZE) == 0);
+	assert(memcmp(user_b.buf_a, buf_a, TOXEXT_MAX_SEGMENT_SIZE) == 0);
+	assert(memcmp(user_b.buf_b, buf_b, TOXEXT_MAX_SEGMENT_SIZE) == 0);
 
 	/*
 	 * Reset the buffers of user_b to ensure that the next tests are valid too
 	 */
-	memset(user_b.buf_a, 0, TOXEXT_MAX_PACKET_SIZE);
-	memset(user_b.buf_b, 0, TOXEXT_MAX_PACKET_SIZE);
-	memset(user_b.buf_c, 0, TOXEXT_MAX_PACKET_SIZE);
-	memset(user_b.buf_d, 0, TOXEXT_MAX_PACKET_SIZE);
+	memset(user_b.buf_a, 0, TOXEXT_MAX_SEGMENT_SIZE);
+	memset(user_b.buf_b, 0, TOXEXT_MAX_SEGMENT_SIZE);
+	memset(user_b.buf_c, 0, TOXEXT_MAX_SEGMENT_SIZE);
+	memset(user_b.buf_d, 0, TOXEXT_MAX_SEGMENT_SIZE);
 
 	packet = toxext_packet_list_create(user_a.toxext_user.toxext,
 					   user_b.toxext_user.tox_user.id);
 	err = my_extension_create_buf_request(user_a.extension_handle, buf_a,
-					      TOXEXT_MAX_PACKET_SIZE, packet);
+					      TOXEXT_MAX_SEGMENT_SIZE, packet);
 
 	assert(err == TOXEXT_SUCCESS);
 
 	err = my_extension_create_buf_request(user_a.extension_handle, buf_b,
-					      TOXEXT_MAX_PACKET_SIZE, packet);
+					      TOXEXT_MAX_SEGMENT_SIZE, packet);
 
 	assert(err == TOXEXT_SUCCESS);
 
 	err = my_extension_create_buf_request(user_a.extension_handle, buf_c,
-					      TOXEXT_MAX_PACKET_SIZE, packet);
+					      TOXEXT_MAX_SEGMENT_SIZE, packet);
 
 	assert(err == TOXEXT_SUCCESS);
 
 	err = my_extension_create_buf_request(user_a.extension_handle, buf_d,
-					      TOXEXT_MAX_PACKET_SIZE, packet);
+					      TOXEXT_MAX_SEGMENT_SIZE, packet);
 
 	assert(err == TOXEXT_SUCCESS);
 
@@ -165,17 +165,17 @@ int main(void)
 		    &user_b.toxext_user.tox_user);
 
 	/* We expect buffers a and b to be complete here but c and d to require a toxext_iterate call */
-	assert(memcmp(user_b.buf_a, buf_a, TOXEXT_MAX_PACKET_SIZE) == 0);
-	assert(memcmp(user_b.buf_b, buf_b, TOXEXT_MAX_PACKET_SIZE) == 0);
-	assert(memcmp(user_b.buf_c, buf_c, TOXEXT_MAX_PACKET_SIZE) != 0);
-	assert(memcmp(user_b.buf_d, buf_d, TOXEXT_MAX_PACKET_SIZE) != 0);
+	assert(memcmp(user_b.buf_a, buf_a, TOXEXT_MAX_SEGMENT_SIZE) == 0);
+	assert(memcmp(user_b.buf_b, buf_b, TOXEXT_MAX_SEGMENT_SIZE) == 0);
+	assert(memcmp(user_b.buf_c, buf_c, TOXEXT_MAX_SEGMENT_SIZE) != 0);
+	assert(memcmp(user_b.buf_d, buf_d, TOXEXT_MAX_SEGMENT_SIZE) != 0);
 
 	toxext_iterate(user_a.toxext_user.toxext);
 	tox_iterate(user_b.toxext_user.tox_user.tox,
 		    &user_b.toxext_user.tox_user);
 
-	assert(memcmp(user_b.buf_c, buf_c, TOXEXT_MAX_PACKET_SIZE) == 0);
-	assert(memcmp(user_b.buf_d, buf_d, TOXEXT_MAX_PACKET_SIZE) == 0);
+	assert(memcmp(user_b.buf_c, buf_c, TOXEXT_MAX_SEGMENT_SIZE) == 0);
+	assert(memcmp(user_b.buf_d, buf_d, TOXEXT_MAX_SEGMENT_SIZE) == 0);
 
 	toxext_test_cleanup_tox_ext_user(&user_a.toxext_user);
 	toxext_test_cleanup_tox_ext_user(&user_b.toxext_user);
