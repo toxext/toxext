@@ -1,6 +1,8 @@
 project(toxext)
 cmake_minimum_required(VERSION 2.8.10)
 
+set(INSTALL_MOCKS CACHE BOOL OFF)
+
 add_compile_options(-Wall -Wextra -Werror -std=gnu11)
 
 find_package(PkgConfig REQUIRED)
