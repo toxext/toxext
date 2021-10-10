@@ -620,10 +620,12 @@ static void toxext_packet_list_free(struct ToxExtPacketList *packet_list)
 	 */
 	if (packet_list->toxext->num_deferred_packets &&
 	    *packet_list->toxext->deferred_packets == packet_list) {
+
 		/* Slide all elements back by one to preserve order */
-		memcpy(packet_list->toxext->deferred_packets,
+		memmove(packet_list->toxext->deferred_packets,
 		       packet_list->toxext->deferred_packets + 1,
-		       packet_list->toxext->num_deferred_packets - 1);
+		       (packet_list->toxext->num_deferred_packets - 1) *
+					sizeof(struct ToxExtPacketList*));
 
 		/* If we fail to realloc we can still just not use that item */
 		packet_list->toxext->num_deferred_packets--;
