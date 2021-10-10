@@ -462,12 +462,17 @@ void toxext_deregister(struct ToxExtExtension *extension)
 	/* Even if we fail to realloc after we can still reduce our size */
 	toxext->num_extensions--;
 
-	struct ToxExtExtension **new_extensions = realloc(
-		toxext->extensions,
-		toxext->num_extensions * sizeof(struct ToxExtExtension *));
+	if (toxext->num_extensions) {
+		struct ToxExtExtension **new_extensions = realloc(
+			toxext->extensions,
+			toxext->num_extensions * sizeof(struct ToxExtExtension *));
 
-	if (new_extensions || toxext->num_extensions == 0) {
-		toxext->extensions = new_extensions;
+		if (new_extensions) {
+			toxext->extensions = new_extensions;
+		}
+	} else {
+		free(toxext->extensions);
+		toxext->extensions = NULL;
 	}
 }
 
@@ -537,12 +542,17 @@ static void toxext_remove_connection(struct ToxExt *toxext,
 	/* If we fail to realloc we can still just not use that item */
 	toxext->num_connections--;
 
-	new_connections = realloc(toxext->connections,
-				  toxext->num_connections *
-					  sizeof(struct ToxExtConnection));
+	if (toxext->num_connections) {
+		new_connections = realloc(toxext->connections,
+					toxext->num_connections *
+						sizeof(struct ToxExtConnection));
 
-	if (new_connections || toxext->num_connections == 0) {
-		toxext->connections = new_connections;
+		if (new_connections) {
+			toxext->connections = new_connections;
+		}
+	} else {
+		free(toxext->connections);
+		toxext->connections = NULL;
 	}
 }
 
@@ -629,15 +639,20 @@ static void toxext_packet_list_free(struct ToxExtPacketList *packet_list)
 
 		/* If we fail to realloc we can still just not use that item */
 		packet_list->toxext->num_deferred_packets--;
-		/* Remove connection from list */
-		struct ToxExtPacketList **new_deferred_packets =
-			realloc(packet_list->toxext->deferred_packets,
-				packet_list->toxext->num_deferred_packets *
-					sizeof(struct ToxExtPacketList *));
 
-		if (new_deferred_packets ||
-		    packet_list->toxext->num_deferred_packets == 0) {
-			packet_list->toxext->deferred_packets = new_deferred_packets;
+		/* Remove connection from list */
+		if (packet_list->toxext->num_deferred_packets) {
+			struct ToxExtPacketList **new_deferred_packets =
+				realloc(packet_list->toxext->deferred_packets,
+					packet_list->toxext->num_deferred_packets *
+						sizeof(struct ToxExtPacketList *));
+
+			if (new_deferred_packets) {
+				packet_list->toxext->deferred_packets = new_deferred_packets;
+			}
+		} else {
+			free(packet_list->toxext->deferred_packets);
+			packet_list->toxext->deferred_packets = NULL;
 		}
 	}
 
@@ -1088,13 +1103,19 @@ int toxext_revoke_connection(struct ToxExtExtension *extension,
 
 	/* If we fail to realloc we can still just not use that item */
 	toxext->num_connections--;
-	/* Remove connection from list */
-	struct ToxExtConnection *new_connections = realloc(
-		toxext->connections,
-		toxext->num_connections * sizeof(struct ToxExtConnection));
 
-	if (new_connections || toxext->num_connections == 0) {
-		toxext->connections = new_connections;
+	if (toxext->num_connections) {
+		/* Remove connection from list */
+		struct ToxExtConnection *new_connections = realloc(
+			toxext->connections,
+			toxext->num_connections * sizeof(struct ToxExtConnection));
+
+		if (new_connections) {
+			toxext->connections = new_connections;
+		}
+	} else {
+		free(toxext->connections);
+		toxext->connections = NULL;
 	}
 
 	return TOXEXT_SUCCESS;
