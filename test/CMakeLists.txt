@@ -7,7 +7,7 @@ set(REPORT_COVERAGE OFF CACHE BOOL "Generate coverage reports")
 function(toxext_test test_name)
 	add_executable(${test_name} ${ARGN})
 	target_compile_options(${test_name} PRIVATE -fsanitize=address)
-	target_link_options(${test_name} PRIVATE -fsanitize=address)
+	target_link_libraries(${test_name} "-fsanitize=address")
 
 	# we use gnu11 for the tests so we can use the container_of macro for inheritance a la linux
 	# Force _DEBUG for tests since we use the assert() macro to crash the tests
