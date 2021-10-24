@@ -1,0 +1,6 @@
+services:
+  toxext:
+    build: .
+    image: toxext:latest
+    volumes:
+      - .:/toxext
