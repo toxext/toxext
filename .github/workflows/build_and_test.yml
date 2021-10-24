@@ -1,0 +1,38 @@
+name: Run unit tests
+on: [pull_request, push]
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      # Check out code
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@master
+      - name: Setup buildx cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            /tmp/.buildx-cache
+          key: ${{ runner.os }}-${{ hashfiles('Dockerfile') }}-${{ hashfiles('docker-compose.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-
+      - name: Build docker image
+        run: docker buildx build -o type=docker --cache-to=type=local,dest=/tmp/.buildx-cache --cache-from=type=local,src=/tmp/.buildx-cache -t toxext:latest .
+      - name: Build Linux
+        run: docker compose run toxext /bin/bash -c "mkdir -p build-linux &&
+          cd build-linux &&
+          cmake .. &&
+          cmake --build ."
+      - name: Test Linux
+        run: docker compose run toxext /bin/bash -c "cd build-linux && ctest ."
+      - name: Build Windows
+        run: docker compose run toxext /bin/bash -c "mkdir -p build-windows &&
+          cd build-windows &&
+          CXX=x86_64-w64-mingw32-gcc LD=x86_64-w64-mingw32-gcc CC=x86_64-w64-mingw32-gcc cmake .. -DCMAKE_SYSTEM_NAME=Windows &&
+          cmake --build ."
+      - name: Test Windows
+        run: docker compose run toxext /bin/bash -c "cd build-windows &&
+          ctest ."
