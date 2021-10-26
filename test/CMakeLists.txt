@@ -6,8 +6,10 @@ set(REPORT_COVERAGE OFF CACHE BOOL "Generate coverage reports")
 # I'm sure I could do this better but I don't want to spend my time on cmake really
 function(toxext_test test_name)
 	add_executable(${test_name} ${ARGN})
-	target_compile_options(${test_name} PRIVATE -fsanitize=address)
-	target_link_libraries(${test_name} "-fsanitize=address")
+	if (UNIX)
+		target_compile_options(${test_name} PRIVATE -fsanitize=address)
+		target_link_libraries(${test_name} "-fsanitize=address")
+	endif()
 
 	# we use gnu11 for the tests so we can use the container_of macro for inheritance a la linux
 	# Force _DEBUG for tests since we use the assert() macro to crash the tests
